@@ -1,64 +1,61 @@
+// src/main.jsx (or your Wagmi/RainbowKit config file)
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App.jsx'; // Or './App' if your App component is in App.js
-import './index.css';    // Your main CSS file with Tailwind directives
+import App from './App.jsx';
+import './index.css';
 
 import '@rainbow-me/rainbowkit/styles.css';
-import { getDefaultConfig, RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
-import { WagmiProvider } from 'wagmi';
-// We will define the Base chain using environment variables below
+import { getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { WagmiProvider, http } from 'wagmi';
+import { base } from 'wagmi/chains'; // Import the base chain definition
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
-import { http, defineChain } from 'viem';
 
-// --- Environment Variables ---
-// These are expected to be in your .env file and prefixed with VITE_ (for Vite projects)
+// --- Critical: Environment Variable Check ---
+// Ensure these environment variables are set in your Vercel project settings.
 const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
-const baseChainId = parseInt(import.meta.env.VITE_BASE_CHAIN_ID || "8453", 10); // Default to Base Mainnet if not set
-const baseNetworkName = import.meta.env.VITE_BASE_NETWORK_NAME || "Base Mainnet";
-const baseRpcUrl = import.meta.env.VITE_BASE_RPC_URL || "https://mainnet.base.org"; // Fallback to public RPC
-const baseBlockExplorerUrl = import.meta.env.VITE_BASE_BLOCK_EXPLORER_URL || "https://basescan.org";
-
-// Log loaded environment variables for debugging
-console.log("main.jsx - VITE_WALLETCONNECT_PROJECT_ID:", walletConnectProjectId);
-console.log("main.jsx - VITE_BASE_CHAIN_ID:", baseChainId);
-console.log("main.jsx - VITE_BASE_NETWORK_NAME:", baseNetworkName);
-console.log("main.jsx - VITE_BASE_RPC_URL:", baseRpcUrl);
-console.log("main.jsx - VITE_BASE_BLOCK_EXPLORER_URL:", baseBlockExplorerUrl);
-
+const baseRpcUrl = import.meta.env.VITE_BASE_MAINNET_RPC_URL; // Your Alchemy URL
+const targetChainId = parseInt(import.meta.env.VITE_BASE_CHAIN_ID || "8453"); // Default to Base Mainnet if not set
 
 if (!walletConnectProjectId) {
-  console.warn("VITE_WALLETCONNECT_PROJECT_ID is not set in your .env file. WalletConnect features might not work. Get one from https://cloud.walletconnect.com");
+  console.error("ERROR: VITE_WALLETCONNECT_PROJECT_ID is not set. WalletConnect will not work.");
+  // You might want to throw an error or display a message to the user in development
 }
-if (!import.meta.env.VITE_BASE_RPC_URL) {
-  console.warn("VITE_BASE_RPC_URL is not set in your .env file. Using default public RPC (https://mainnet.base.org) which might be unstable. Consider using a dedicated RPC from Alchemy, Infura, etc.");
+if (!baseRpcUrl) {
+  console.warn(
+    "WARNING: VITE_BASE_MAINNET_RPC_URL is not set. Falling back to public RPC for Base. " +
+    "This is NOT recommended for production due to rate limits."
+  );
 }
 
-// Define the Base chain using environment variables
-const configuredBaseChain = defineChain({
-    id: baseChainId,
-    name: baseNetworkName,
-    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    rpcUrls: {
-        default: { http: [baseRpcUrl] },
-        public: { http: [baseRpcUrl] }, // Often good to define public as well
-    },
-    blockExplorers: {
-        default: { name: `${baseNetworkName} Scan`, url: baseBlockExplorerUrl },
-    },
-    testnet: false, // Set to true if this is a testnet configuration (e.g., Base Sepolia)
-});
+// --- Configure your target chain (e.g., Base Mainnet) ---
+// Start with the default chain definition from wagmi/chains
+const appChain = { ...base }; 
 
-// Configure Wagmi with RainbowKit's getDefaultConfig
-const config = getDefaultConfig({
-  appName: 'BTC Prediction Game',
-  projectId: walletConnectProjectId || "YOUR_WALLETCONNECT_PROJECT_ID_FALLBACK", // Provide a fallback
-  chains: [configuredBaseChain], // Pass the chain defined using env variables
-  transports: {
-    // For each chain you support, define a transport.
-    // http() without arguments will use the rpcUrl from the chain definition.
-    [configuredBaseChain.id]: http(), 
+// Override the RPC URL with your dedicated one from the environment variable
+appChain.rpcUrls = {
+  default: {
+    http: [baseRpcUrl || base.rpcUrls.default.http[0]], // Use your custom RPC, fallback to wagmi's default if yours isn't set
   },
-  ssr: false, // Set to true if using Server-Side Rendering
+  public: { // It's good practice to also set the public one if your custom one is defined
+    http: [baseRpcUrl || base.rpcUrls.default.http[0]],
+  },
+};
+
+// Ensure the chain ID is correct (especially if VITE_BASE_CHAIN_ID might be a string)
+appChain.id = targetChainId; 
+// You can also override the name if needed, though usually not necessary if importing from wagmi/chains
+// appChain.name = import.meta.env.VITE_BASE_NETWORK_NAME || base.name;
+
+
+// --- Wagmi Configuration ---
+const config = getDefaultConfig({
+  appName: 'BTC Price Prediction Game',
+  projectId: walletConnectProjectId || "YOUR_FALLBACK_WALLETCONNECT_PROJECT_ID", // Fallback needed if env var is missing
+  chains: [appChain], // Pass the configured chain object
+  transports: {
+    [appChain.id]: http(appChain.rpcUrls.default.http[0]), // Use the (potentially overridden) RPC URL
+  },
+  // ssr: true, // Set to true if using a Next.js app with SSR (for Vite/React, usually false or not needed)
 });
 
 const queryClient = new QueryClient();
@@ -67,13 +64,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider 
-          theme={window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? darkTheme() : lightTheme()} // Auto dark/light theme
-          modalSize="compact" // Or "wide"
-        >
+        <RainbowKitProvider>
           <App />
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );
