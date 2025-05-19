@@ -1,144 +1,176 @@
 // src/hooks/useOraclePrices.js
-import { useState, useCallback, useEffect } from 'react';
-import { usePublicClient } from 'wagmi';
-import { ETH_USD_PRICE_FEED_ADDRESS, PRICE_FEED_ABI, ZERO_ADDRESS, TARGET_CHAIN_ID } from '../config/contract'; // Adjust path as needed
-import { formatTokenUnits, formatTimestampGMT } from '../utils/formatting'; // Adjust path as needed
+import { useState, useEffect, useCallback } from 'react';
+import { useReadContract } from 'wagmi';
+import { ETH_USD_PRICE_FEED_ADDRESS, PRICE_FEED_ABI, ZERO_ADDRESS, TARGET_CHAIN_ID } from '../config/contract';
+import { formatTokenUnits, formatTimestampGMT } from '../utils/formatting';
+
+const FIVE_MINUTES_IN_MS = 5 * 60 * 1000;
 
 /**
- * Custom hook to fetch and manage ETH and BTC oracle prices.
- * @param {string | null} btcGameContractFeedAddress - The BTC price feed address obtained from the game contract.
+ * Custom hook to fetch and manage ETH and BTC oracle prices using useReadContract for caching.
+ * @param {string | null} btcGameContractFeedAddress - The BTC price feed address from the game contract.
  * @param {Function} showNotif - Function to display notifications.
  * @returns {object} An object containing ETH and BTC price data, loading states, and refetch functions.
  */
 export function useOraclePrices(btcGameContractFeedAddress, showNotif) {
-    const publicClient = usePublicClient({ chainId: TARGET_CHAIN_ID });
+    // --- ETH Price Feed ---
+    const { 
+        data: ethPriceRoundData, 
+        isLoading: isEthPriceDataLoading, 
+        refetch: refetchEthPriceData,
+        error: ethPriceError 
+    } = useReadContract({
+        address: ETH_USD_PRICE_FEED_ADDRESS,
+        abi: PRICE_FEED_ABI,
+        functionName: 'latestRoundData',
+        chainId: TARGET_CHAIN_ID,
+        query: {
+            staleTime: FIVE_MINUTES_IN_MS, // Cache ETH price for 5 minutes
+            refetchOnWindowFocus: false, // Optional: disable refetch on window focus
+            enabled: !!ETH_USD_PRICE_FEED_ADDRESS && ETH_USD_PRICE_FEED_ADDRESS !== ZERO_ADDRESS, // Only enable if address is valid
+        },
+    });
 
-    // ETH Price State
-    const [currentEthPrice, setCurrentEthPrice] = useState(null); // Raw ETH price as number
-    const [currentEthPriceDisplay, setCurrentEthPriceDisplay] = useState('N/A'); // Formatted ETH price for UI
+    const { 
+        data: ethDecimalsData, 
+        isLoading: isEthDecimalsLoading 
+    } = useReadContract({
+        address: ETH_USD_PRICE_FEED_ADDRESS,
+        abi: PRICE_FEED_ABI,
+        functionName: 'decimals',
+        chainId: TARGET_CHAIN_ID,
+        query: {
+            staleTime: Infinity, // Decimals rarely change, cache indefinitely
+            refetchOnWindowFocus: false,
+            enabled: !!ETH_USD_PRICE_FEED_ADDRESS && ETH_USD_PRICE_FEED_ADDRESS !== ZERO_ADDRESS,
+        },
+    });
+
+    // Derived ETH Price State
+    const [currentEthPrice, setCurrentEthPrice] = useState(null); // Raw number
+    const [currentEthPriceDisplay, setCurrentEthPriceDisplay] = useState('N/A');
     const [ethPriceTimestamp, setEthPriceTimestamp] = useState('N/A');
-    const [isEthPriceLoading, setIsEthPriceLoading] = useState(false);
 
-    // BTC Price State
-    const [currentBtcPrice, setCurrentBtcPrice] = useState('N/A'); // Formatted BTC price for UI
+    useEffect(() => {
+        if (ethPriceRoundData && ethDecimalsData !== undefined) {
+            try {
+                // ethPriceRoundData: [roundId, answer, startedAt, updatedAt, answeredInRound]
+                const priceValue = ethPriceRoundData[1];
+                const updatedAt = ethPriceRoundData[3];
+                const decimals = Number(ethDecimalsData);
+                const priceAsNumber = parseFloat(formatTokenUnits(priceValue, decimals));
+
+                setCurrentEthPrice(priceAsNumber);
+                setCurrentEthPriceDisplay(`$${priceAsNumber.toFixed(2)}`);
+                setEthPriceTimestamp(formatTimestampGMT(updatedAt));
+            } catch (e) {
+                console.error("Error processing ETH price data:", e);
+                setCurrentEthPrice(null);
+                setCurrentEthPriceDisplay('Error');
+                setEthPriceTimestamp('Error');
+                if (showNotif) showNotif("Error processing ETH price.", "error");
+            }
+        } else if (ethPriceError) {
+            console.error("Error fetching ETH price feed:", ethPriceError);
+            setCurrentEthPrice(null);
+            setCurrentEthPriceDisplay('Oracle Error');
+            setEthPriceTimestamp('Error');
+            if (showNotif) showNotif(`ETH Price Feed Error: ${ethPriceError.shortMessage || ethPriceError.message}`, "error");
+        }
+    }, [ethPriceRoundData, ethDecimalsData, showNotif, ethPriceError]);
+
+
+    // --- BTC Price Feed (from game contract's feed address) ---
+    const { 
+        data: btcPriceRoundData, 
+        isLoading: isBtcPriceDataLoading, 
+        refetch: refetchBtcPriceData,
+        error: btcPriceError
+    } = useReadContract({
+        address: btcGameContractFeedAddress, // Dynamic address
+        abi: PRICE_FEED_ABI,
+        functionName: 'latestRoundData',
+        chainId: TARGET_CHAIN_ID,
+        query: {
+            staleTime: FIVE_MINUTES_IN_MS, // Cache BTC price for 5 minutes
+            refetchOnWindowFocus: false,
+            enabled: !!btcGameContractFeedAddress && btcGameContractFeedAddress !== ZERO_ADDRESS, // Only run if address is valid
+        },
+    });
+
+    const { 
+        data: btcDecimalsData, 
+        isLoading: isBtcDecimalsLoading 
+    } = useReadContract({
+        address: btcGameContractFeedAddress,
+        abi: PRICE_FEED_ABI,
+        functionName: 'decimals',
+        chainId: TARGET_CHAIN_ID,
+        query: {
+            staleTime: Infinity,
+            refetchOnWindowFocus: false,
+            enabled: !!btcGameContractFeedAddress && btcGameContractFeedAddress !== ZERO_ADDRESS,
+        },
+    });
+
+    // Derived BTC Price State
+    const [currentBtcPriceDisplay, setCurrentBtcPriceDisplay] = useState('N/A');
     const [btcPriceTimestamp, setBtcPriceTimestamp] = useState('N/A');
-    const [isBtcPriceLoading, setIsBtcPriceLoading] = useState(false);
 
-    // Generic price fetching function
-    const fetchPriceData = useCallback(async (feedAddress, setRawPrice, setDisplayPrice, setTimestamp, setIsLoading, currencyName, isEth = false) => {
-        if (!publicClient || !feedAddress || feedAddress === ZERO_ADDRESS) {
-            showNotif(`${currencyName} Price Feed: Address not configured or invalid.`, "error");
-            if (setRawPrice) setRawPrice(null);
-            setDisplayPrice('Oracle N/A');
-            setTimestamp('N/A');
-            setIsLoading(false);
+    useEffect(() => {
+        if (!btcGameContractFeedAddress || btcGameContractFeedAddress === ZERO_ADDRESS) {
+            setCurrentBtcPriceDisplay('Oracle N/A'); // If no address, show N/A
+            setBtcPriceTimestamp('N/A');
             return;
         }
+        if (btcPriceRoundData && btcDecimalsData !== undefined) {
+            try {
+                const priceValue = btcPriceRoundData[1];
+                const updatedAt = btcPriceRoundData[3];
+                const decimals = Number(btcDecimalsData);
+                const priceAsNumber = parseFloat(formatTokenUnits(priceValue, decimals));
 
-        setIsLoading(true);
-        setDisplayPrice('Fetching...');
-        try {
-            const decimalsData = await publicClient.readContract({
-                address: feedAddress,
-                abi: PRICE_FEED_ABI,
-                functionName: 'decimals',
-            });
-            const roundData = await publicClient.readContract({
-                address: feedAddress,
-                abi: PRICE_FEED_ABI,
-                functionName: 'latestRoundData',
-            });
-
-            if (!roundData || typeof roundData[1] === 'undefined' || typeof roundData[3] === 'undefined' || typeof decimalsData === 'undefined') {
-                throw new Error(`Invalid ${currencyName} price feed data or decimals.`);
+                setCurrentBtcPriceDisplay(`$${priceAsNumber.toFixed(2)}`);
+                setBtcPriceTimestamp(formatTimestampGMT(updatedAt));
+            } catch (e) {
+                console.error("Error processing BTC price data:", e);
+                setCurrentBtcPriceDisplay('Error');
+                setBtcPriceTimestamp('Error');
+                if (showNotif) showNotif("Error processing BTC price.", "error");
             }
-
-            const priceValue = roundData[1]; // answer
-            const updatedAt = roundData[3]; // updatedAt
-            const decimals = Number(decimalsData);
-
-            const priceAsNumber = parseFloat(formatTokenUnits(priceValue, decimals));
-
-            if (isEth && setRawPrice) {
-                setRawPrice(priceAsNumber); // Store raw number for ETH for calculations
-            }
-            setDisplayPrice(`$${priceAsNumber.toFixed(2)}`);
-            setTimestamp(formatTimestampGMT(updatedAt));
-            showNotif(`${currencyName} price updated.`, "success");
-
-        } catch (e) {
-            console.error(`Error fetching ${currencyName} price:`, e);
-            if (setRawPrice) setRawPrice(null);
-            setDisplayPrice('Error');
-            setTimestamp('Error');
-            showNotif(`${currencyName} Price Error: ${e.message}.`, "error");
-        } finally {
-            setIsLoading(false);
+        } else if (btcPriceError) {
+            console.error("Error fetching BTC price feed:", btcPriceError);
+            setCurrentBtcPriceDisplay('Oracle Error');
+            setBtcPriceTimestamp('Error');
+            if (showNotif) showNotif(`BTC Price Feed Error: ${btcPriceError.shortMessage || btcPriceError.message}`, "error");
         }
-    }, [publicClient, showNotif]); // formatTokenUnits & formatTimestampGMT are stable utils
+    }, [btcPriceRoundData, btcDecimalsData, btcGameContractFeedAddress, showNotif, btcPriceError]);
 
-    // Specific fetcher for ETH price
-    const fetchCurrentEthPrice = useCallback(() => {
-        fetchPriceData(
-            ETH_USD_PRICE_FEED_ADDRESS,
-            setCurrentEthPrice, // setRawPrice for ETH
-            setCurrentEthPriceDisplay,
-            setEthPriceTimestamp,
-            setIsEthPriceLoading,
-            "ETH",
-            true // isEth = true
-        );
-    }, [fetchPriceData]);
+    const handleRefetchEthPrice = useCallback(async () => {
+        if (showNotif) showNotif("Refreshing ETH price...", "info");
+        await refetchEthPriceData();
+    }, [refetchEthPriceData, showNotif]);
 
-    // Specific fetcher for BTC price
-    const fetchCurrentBtcPrice = useCallback(() => {
-        if (btcGameContractFeedAddress && btcGameContractFeedAddress !== ZERO_ADDRESS) {
-            fetchPriceData(
-                btcGameContractFeedAddress,
-                null, // No raw price state for BTC needed directly by App.jsx currently
-                setCurrentBtcPrice, // setDisplayPrice for BTC
-                setBtcPriceTimestamp,
-                setIsBtcPriceLoading,
-                "BTC"
-            );
-        } else {
-             // Only show notification if it's explicitly called, not on initial load without address
-            // showNotif("BTC Price Feed: Address not available from game contract.", "info");
-            setCurrentBtcPrice('Oracle N/A');
-            setBtcPriceTimestamp('N/A');
+    const handleRefetchBtcPrice = useCallback(async () => {
+        if (!btcGameContractFeedAddress || btcGameContractFeedAddress === ZERO_ADDRESS) {
+            if (showNotif) showNotif("BTC Price Feed address not set in contract.", "error");
+            return;
         }
-    }, [fetchPriceData, btcGameContractFeedAddress]);
+        if (showNotif) showNotif("Refreshing BTC price...", "info");
+        await refetchBtcPriceData();
+    }, [refetchBtcPriceData, btcGameContractFeedAddress, showNotif]);
 
-    // Effect to fetch ETH price on mount or when publicClient is available
-    useEffect(() => {
-        if (publicClient) {
-            fetchCurrentEthPrice();
-        }
-    }, [publicClient, fetchCurrentEthPrice]);
-
-    // Effect to fetch BTC price when its feed address becomes available or changes
-    useEffect(() => {
-        if (publicClient && btcGameContractFeedAddress && btcGameContractFeedAddress !== ZERO_ADDRESS) {
-            fetchCurrentBtcPrice();
-        } else if (!btcGameContractFeedAddress || btcGameContractFeedAddress === ZERO_ADDRESS) {
-            // Reset BTC price if feed address becomes invalid/unavailable
-            setCurrentBtcPrice('Oracle N/A');
-            setBtcPriceTimestamp('N/A');
-        }
-    }, [publicClient, btcGameContractFeedAddress, fetchCurrentBtcPrice]);
 
     return {
-        // ETH Price Data
-        currentEthPrice, // Raw number, useful for calculations
+        currentEthPrice, // Raw number
         currentEthPriceDisplay,
         ethPriceTimestamp,
-        isEthPriceLoading,
-        fetchCurrentEthPrice, // Expose refetch function
+        isEthPriceLoading: isEthPriceDataLoading || isEthDecimalsLoading,
+        fetchCurrentEthPrice: handleRefetchEthPrice,
 
-        // BTC Price Data
-        currentBtcPrice, // This is already display-formatted
+        currentBtcPrice: currentBtcPriceDisplay, // Already display-formatted
         btcPriceTimestamp,
-        isBtcPriceLoading,
-        fetchCurrentBtcPrice, // Expose refetch function
+        isBtcPriceLoading: isBtcPriceDataLoading || isBtcDecimalsLoading,
+        fetchCurrentBtcPrice: handleRefetchBtcPrice,
     };
 }

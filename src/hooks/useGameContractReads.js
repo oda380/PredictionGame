@@ -1,40 +1,48 @@
 // src/hooks/useGameContractReads.js
 import { useReadContract } from 'wagmi';
-import { GAME_CONTRACT_ABI, VITE_GAME_CONTRACT_ADDRESS, TARGET_CHAIN_ID, ZERO_ADDRESS } from '../config/contract'; // Adjust path as needed
-import { formatWeiToEthString } from '../utils/formatting'; // Adjust path as needed
+import { GAME_CONTRACT_ABI, VITE_GAME_CONTRACT_ADDRESS, TARGET_CHAIN_ID, ZERO_ADDRESS } from '../config/contract';
+import { formatWeiToEthString } from '../utils/formatting';
 import { useCallback } from 'react';
+
+const DEFAULT_STALE_TIME = 1 * 60 * 1000; // 1 minute
+const LONG_STALE_TIME = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Custom hook to read and manage data from the BTC Price Prediction Game contract.
+ * Applies staleTime to reduce unnecessary refetches.
  * @returns {object} An object containing game data, derived states, and refetch functions.
  */
 export function useGameContractReads() {
-    // Base configuration for all read calls to the game contract
-    const baseReadConfig = {
+    const baseReadConfig = (functionName, args = [], options = {}) => ({
         abi: GAME_CONTRACT_ABI,
         address: VITE_GAME_CONTRACT_ADDRESS,
         chainId: TARGET_CHAIN_ID,
-    };
+        functionName,
+        args,
+        query: {
+            staleTime: DEFAULT_STALE_TIME, // Default stale time for most reads
+            refetchOnWindowFocus: false, // Generally disable aggressive refetch on focus
+            refetchOnMount: true, // Fetch when component mounts (if data is stale)
+            ...options, // Allow overriding query options
+        },
+    });
 
-    // --- Raw Data Fetches ---
-    const { data: nextRoundIdData, refetch: refetchNextRoundId } = useReadContract({ ...baseReadConfig, functionName: 'getNextRoundId' });
-    const { data: latestCreatedRoundIdData, refetch: refetchLatestCreatedRoundId } = useReadContract({ ...baseReadConfig, functionName: 'getLatestCreatedRoundId' });
-    const { data: entryFeeData, refetch: refetchEntryFee } = useReadContract({ ...baseReadConfig, functionName: 'entryFee' });
-    const { data: gamePausedData, refetch: refetchGamePaused } = useReadContract({ ...baseReadConfig, functionName: 'paused' });
-    const { data: contractOwnerData, refetch: refetchContractOwner } = useReadContract({ ...baseReadConfig, functionName: 'owner' });
-    const { data: tokenGatingEnabledData, refetch: refetchTokenGatingEnabled } = useReadContract({ ...baseReadConfig, functionName: 'tokenGatingEnabled' });
-    const { data: gatingTokenData, refetch: refetchGatingToken } = useReadContract({ ...baseReadConfig, functionName: 'gatingToken' });
-    const { data: minGatingTokenBalanceData, refetch: refetchMinGatingBalance } = useReadContract({ ...baseReadConfig, functionName: 'minGatingTokenBalance' });
-    const { data: btcPriceFeedAddressDataFromContract, refetch: refetchBtcPriceFeedAddress } = useReadContract({ ...baseReadConfig, functionName: 'priceFeed' });
-    const { data: prizePoolPercentageData, refetch: refetchPrizePoolPercentage } = useReadContract({ ...baseReadConfig, functionName: 'prizePoolPercentage' });
-    // Add any other read hooks needed from the contract, e.g., maxBetAmount if it's readable
+    const { data: nextRoundIdData, refetch: refetchNextRoundId } = useReadContract(baseReadConfig('getNextRoundId'));
+    const { data: latestCreatedRoundIdData, refetch: refetchLatestCreatedRoundId } = useReadContract(baseReadConfig('getLatestCreatedRoundId'));
+    const { data: entryFeeData, refetch: refetchEntryFee } = useReadContract(baseReadConfig('entryFee', [], { staleTime: LONG_STALE_TIME })); // Entry fee changes less often
+    const { data: gamePausedData, refetch: refetchGamePaused } = useReadContract(baseReadConfig('paused'));
+    const { data: contractOwnerData, refetch: refetchContractOwner } = useReadContract(baseReadConfig('owner', [], { staleTime: Infinity })); // Owner rarely changes
+    const { data: tokenGatingEnabledData, refetch: refetchTokenGatingEnabled } = useReadContract(baseReadConfig('tokenGatingEnabled'));
+    const { data: gatingTokenData, refetch: refetchGatingToken } = useReadContract(baseReadConfig('gatingToken', [], { staleTime: LONG_STALE_TIME }));
+    const { data: minGatingTokenBalanceData, refetch: refetchMinGatingBalance } = useReadContract(baseReadConfig('minGatingTokenBalance', [], { staleTime: LONG_STALE_TIME }));
+    const { data: btcPriceFeedAddressDataFromContract, refetch: refetchBtcPriceFeedAddress } = useReadContract(baseReadConfig('priceFeed', [], { staleTime: LONG_STALE_TIME }));
+    const { data: prizePoolPercentageData, refetch: refetchPrizePoolPercentage } = useReadContract(baseReadConfig('prizePoolPercentage', [], { staleTime: LONG_STALE_TIME }));
 
-    // --- Derived States ---
     const nextRoundId = nextRoundIdData !== undefined ? nextRoundIdData.toString() : 'N/A';
     const latestCreatedRoundId = latestCreatedRoundIdData !== undefined ? latestCreatedRoundIdData.toString() : 'N/A';
-    const entryFeeInWei = entryFeeData; // Keep the BigInt for transactions
+    const entryFeeInWei = entryFeeData;
     const entryFeeDisplay = entryFeeData !== undefined ? formatWeiToEthString(entryFeeData) : 'N/A';
-    const isGamePaused = typeof gamePausedData === 'boolean' ? gamePausedData : null; // Keep boolean, handle "N/A" in UI
+    const isGamePaused = typeof gamePausedData === 'boolean' ? gamePausedData : null;
     const contractOwner = contractOwnerData !== undefined ? contractOwnerData : null;
     const isTokenGatingEnabled = typeof tokenGatingEnabledData === 'boolean' ? tokenGatingEnabledData : null;
     const gatingTokenAddress = gatingTokenData && gatingTokenData !== ZERO_ADDRESS ? gatingTokenData : "N/A";
@@ -42,10 +50,9 @@ export function useGameContractReads() {
     const btcPriceFeedAddress = btcPriceFeedAddressDataFromContract && btcPriceFeedAddressDataFromContract !== ZERO_ADDRESS ? btcPriceFeedAddressDataFromContract : null;
     const prizePoolPercentage = prizePoolPercentageData !== undefined ? Number(prizePoolPercentageData) : null;
 
-
-    // --- Combined Refetch Function ---
     const refetchAllGameData = useCallback(async () => {
-        // Using Promise.all to await all refetches concurrently
+        // Manually trigger refetch for all relevant data points
+        // Wagmi's useReadContract refetch functions return promises
         await Promise.all([
             refetchNextRoundId(),
             refetchLatestCreatedRoundId(),
@@ -57,9 +64,8 @@ export function useGameContractReads() {
             refetchMinGatingBalance(),
             refetchBtcPriceFeedAddress(),
             refetchPrizePoolPercentage(),
-            // Add other refetch calls here
         ]);
-    }, [ // Add all refetch functions to the dependency array
+    }, [
         refetchNextRoundId, refetchLatestCreatedRoundId, refetchEntryFee,
         refetchGamePaused, refetchContractOwner, refetchTokenGatingEnabled,
         refetchGatingToken, refetchMinGatingBalance, refetchBtcPriceFeedAddress,
@@ -67,30 +73,19 @@ export function useGameContractReads() {
     ]);
 
     return {
-        // Raw data (optional to return if only derived is needed)
-        // entryFeeData, gamePausedData, contractOwnerData, etc.
-
-        // Derived and formatted data for UI
         nextRoundId,
         latestCreatedRoundId,
-        entryFeeInWei, // Useful for transactions
+        entryFeeInWei,
         entryFeeDisplay,
-        isGamePaused, // boolean or null
-        gamePausedDisplay: isGamePaused === null ? "N/A" : (isGamePaused ? "Yes" : "No"), // For UI
+        isGamePaused,
+        gamePausedDisplay: isGamePaused === null ? "N/A" : (isGamePaused ? "Yes" : "No"),
         contractOwner,
-        isTokenGatingEnabled, // boolean or null
-        tokenGatingEnabledDisplay: isTokenGatingEnabled === null ? "N/A" : (isTokenGatingEnabled ? "Enabled" : "Disabled"), // For UI
+        isTokenGatingEnabled,
+        tokenGatingEnabledDisplay: isTokenGatingEnabled === null ? "N/A" : (isTokenGatingEnabled ? "Enabled" : "Disabled"),
         gatingTokenAddress,
         minGatingTokenBalance,
-        btcPriceFeedAddress, // string or null
-        prizePoolPercentage, // number or null
-
-        // Refetch functions
-        refetchAllGameData, // Primary refetch for all data points
-        // Individual refetches can also be exposed if needed for more granular updates
-        refetchEntryFee,
-        refetchGamePaused,
-        refetchBtcPriceFeedAddress,
-        // ... etc.
+        btcPriceFeedAddress,
+        prizePoolPercentage,
+        refetchAllGameData,
     };
 }
