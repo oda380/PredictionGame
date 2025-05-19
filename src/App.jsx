@@ -108,6 +108,9 @@ function App() {
     const [currentParticipantsCount, setCurrentParticipantsCount] = useState('N/A');
     const [activeRoundMessage, setActiveRoundMessage] = useState("Checking for active round...");
     const [isLatestRoundBettable, setIsLatestRoundBettable] = useState(false);
+    const [isLatestRoundStakeable, setIsLatestRoundStakeable] = useState(false);
+    // --- NEW STATE: Store the active round's end time for display ---
+    const [activeRoundEndTimeDisplay, setActiveRoundEndTimeDisplay] = useState("N/A");
 
 
     // --- Wagmi Write Hook ---
@@ -149,9 +152,12 @@ function App() {
     }, [isConnected, userAddress, currentEthPrice, chain, publicClient, fetchBetHistory]);
 
 
+    // Determine Active Round Status, if it's bettable, stakeable, and its end time
     useEffect(() => {
         const checkActiveRound = async () => {
             setIsLatestRoundBettable(false); 
+            setIsLatestRoundStakeable(false); 
+            setActiveRoundEndTimeDisplay("N/A"); // Reset on each check
 
             if (!publicClient || latestCreatedRoundId === 'N/A' || isGamePaused === null) {
                 setActiveRoundMessage("Loading round status...");
@@ -162,7 +168,7 @@ function App() {
                 return;
             }
             if (isGamePaused) {
-                setActiveRoundMessage(`Game is paused. Round ${latestCreatedRoundId} may not be active for betting.`);
+                setActiveRoundMessage(`Game is paused. Round ${latestCreatedRoundId} may not be active.`);
                 return;
             }
             
@@ -174,22 +180,31 @@ function App() {
                     args: [BigInt(latestCreatedRoundId)] 
                 });
 
-                if (roundDataArr && !roundDataArr[2]) { 
-                    const deadlineTimestamp = Number(roundDataArr[1]); 
-                    if (deadlineTimestamp * 1000 > Date.now()) { 
-                        setActiveRoundMessage(`Round ${latestCreatedRoundId} is ACTIVE for betting until ${formatTimestamp(deadlineTimestamp)}.`);
-                        setIsLatestRoundBettable(true); 
-                    } else {
-                        setActiveRoundMessage(`Round ${latestCreatedRoundId} betting closed. Awaiting resolution.`);
+                if (roundDataArr && roundDataArr[0].toString() !== "0") { // Check if roundEndTime is initialized
+                    const roundEndTime = Number(roundDataArr[0]);
+                    setActiveRoundEndTimeDisplay(formatTimestamp(roundEndTime)); // Set display end time
+
+                    if (!roundDataArr[2]) { // Not resolved (index 2 is 'resolved')
+                        const deadlineTimestamp = Number(roundDataArr[1]); // index 1 is 'predictionDeadline'
+                        setIsLatestRoundStakeable(true); 
+
+                        if (deadlineTimestamp * 1000 > Date.now()) { 
+                            setActiveRoundMessage(`Round ${latestCreatedRoundId} is ACTIVE for betting until ${formatTimestamp(deadlineTimestamp)}.`);
+                            setIsLatestRoundBettable(true); 
+                        } else {
+                            setActiveRoundMessage(`Round ${latestCreatedRoundId} betting closed. Awaiting resolution.`);
+                        }
+                    } else { // Resolved
+                        setActiveRoundMessage(`Round ${latestCreatedRoundId} is resolved. No active round for betting or staking.`);
                     }
-                } else if (roundDataArr && roundDataArr[2]) { 
-                    setActiveRoundMessage(`Round ${latestCreatedRoundId} is resolved. No active round for betting.`);
                 } else {
-                     setActiveRoundMessage("Could not determine status for the latest round.");
+                     setActiveRoundMessage("Could not determine status for the latest round (may not be initialized).");
+                     setActiveRoundEndTimeDisplay("N/A");
                 }
             } catch (error) {
                 console.error("Error checking active round status in readContract:", error);
                 setActiveRoundMessage("Could not determine active round status due to an error.");
+                setActiveRoundEndTimeDisplay("Error");
             }
         };
 
@@ -198,6 +213,8 @@ function App() {
         } else {
             setActiveRoundMessage("Connect wallet and switch to target network.");
             setIsLatestRoundBettable(false);
+            setIsLatestRoundStakeable(false);
+            setActiveRoundEndTimeDisplay("N/A");
         }
     }, [isConnected, chain, publicClient, latestCreatedRoundId, isGamePaused, formatTimestamp]);
 
@@ -307,14 +324,20 @@ function App() {
 
     const handleRaiseStakeSubmit = async (event) => {
         event.preventDefault();
-        const roundId = event.target.raiseStakeRoundId.value;
+        const roundId = latestCreatedRoundId;
         const amountUsdStr = event.target.raiseStakeAmountUsd.value; 
-        if (!roundId || !amountUsdStr) {
-            showNotif("Please provide both Round ID and USD amount to raise stake.", "error"); return;
+
+        if (!isLatestRoundStakeable || !roundId || roundId === '0' || roundId === 'N/A') {
+             showNotif("No active round available to raise stake or round ID is invalid.", "error"); 
+             return;
+        }
+        if (!amountUsdStr) {
+            showNotif("Please provide USD amount to raise stake.", "error"); return;
         }
         if (!currentEthPrice || currentEthPrice <= 0) { 
             showNotif("Current ETH/USD price is not available or invalid. Cannot calculate ETH amount.", "error"); return;
         }
+
         try {
             const amountUsd = parseFloat(amountUsdStr);
             if (isNaN(amountUsd) || amountUsd <= 0) {
@@ -322,6 +345,7 @@ function App() {
             }
             const amountEth = amountUsd / currentEthPrice;
             const amountWei = parseEther(amountEth.toFixed(18)); 
+
             showNotif(`Raising stake for round ${roundId} by ${amountEth.toFixed(6)} ETH (~$${amountUsdStr} USD)...`, "info");
             await writeContractAsync({
                 ...baseWriteConfig, functionName: 'raiseStakeInRound', args: [BigInt(roundId)], value: amountWei,
@@ -334,53 +358,31 @@ function App() {
 
     // Admin Handlers
     const adminActionWrapper = async (functionName, args = [], successMsgPrefix = "Processing", value) => { try { showNotif(`${successMsgPrefix}...`, "info"); await writeContractAsync({ ...baseWriteConfig, functionName, args, value }); } catch (e) { showNotif(`Admin Action (${functionName}) Error: ${e.shortMessage || e.message}`, "error"); console.error(e);}};
-    
-    // --- MODIFIED handleCreateRound ---
     const handleCreateRound = async (e) => { 
         e.preventDefault(); 
         const formData = new FormData(e.target); 
         const endTimeStr = formData.get('roundEndTimeAdmin'); 
         const deadlineStr = formData.get('predictionDeadlineAdmin'); 
-        
         if(!endTimeStr || !deadlineStr){ 
             showNotif("End time and deadline are required.", "error"); 
             return; 
         } 
-        
         const endTimestampDate = new Date(endTimeStr);
         const deadlineTimestampDate = new Date(deadlineStr);
-
-        // Check if dates are valid
         if (isNaN(endTimestampDate.getTime()) || isNaN(deadlineTimestampDate.getTime())) {
             showNotif("Invalid date format provided for end time or deadline.", "error");
             return;
         }
-
         const endTimestampMs = endTimestampDate.getTime();
         const deadlineTimestampMs = deadlineTimestampDate.getTime();
-        
         const end = BigInt(Math.floor(endTimestampMs / 1000)); 
         const dead = BigInt(Math.floor(deadlineTimestampMs / 1000)); 
-        const nowInSeconds = BigInt(Math.floor(Date.now() / 1000)); // Convert current time to BigInt for comparison
-
-        // Validate timestamps
-        if (end <= dead) {
-            showNotif("End time must be after the prediction deadline.", "error"); 
-            return;
-        }
-        if (end <= nowInSeconds) {
-            showNotif("Round end time must be in the future.", "error");
-            return;
-        }
-        if (dead <= nowInSeconds) {
-            showNotif("Prediction deadline must be in the future.", "error");
-            return;
-        }
-        
+        const nowInSeconds = BigInt(Math.floor(Date.now() / 1000)); 
+        if (end <= dead) { showNotif("End time must be after the prediction deadline.", "error"); return; }
+        if (end <= nowInSeconds) { showNotif("Round end time must be in the future.", "error"); return; }
+        if (dead <= nowInSeconds) { showNotif("Prediction deadline must be in the future.", "error"); return; }
         adminActionWrapper('createRound', [end, dead], "Creating new round");
     };
-    // --- END MODIFIED handleCreateRound ---
-
     const handleResolveRound = async (e) => { e.preventDefault(); const id = new FormData(e.target).get('resolveRoundIdAdmin'); if(!id || isNaN(id) || BigInt(id) <= 0) {showNotif("Invalid ID.", "error"); return;} adminActionWrapper('resolveRound', [BigInt(id)], `Resolving ${id}`); };
     const handleSetGatingToken = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const addr = fd.get('gatingTokenAddress') || ZERO_ADDRESS; const bal = fd.get('minGatingTokenBalance') ? BigInt(fd.get('minGatingTokenBalance')) : 0n; if (addr !== ZERO_ADDRESS && !/^0x[a-fA-F0-9]{40}$/.test(addr)) { showNotif("Invalid token address.", "error"); return; } adminActionWrapper('setGatingToken', [addr, bal], "Setting gating token"); };
     const handleToggleGating = async () => { if(isTokenGatingEnabled === null) {showNotif("Gating status not loaded.", "error"); return;} adminActionWrapper('toggleTokenGating', [!isTokenGatingEnabled], `Toggling gating`); }; 
@@ -444,7 +446,11 @@ function App() {
                                 </p>
                                 <p className="text-sm mb-1"><strong>Next Round ID:</strong> <span className="font-semibold">{nextRoundId}</span></p>
                                 <p className="text-sm mb-1"><strong>Latest Created Round:</strong> <span className="font-semibold">{latestCreatedRoundId}</span></p>
-                                <p className="text-sm mb-1"><strong>Active Round:</strong> <span className="font-semibold">{activeRoundMessage}</span></p> 
+                                <p className="text-sm mb-1"><strong>Active Round Status:</strong> <span className="font-semibold">{activeRoundMessage}</span></p> 
+                                {/* --- ADDED ACTIVE ROUND END TIME DISPLAY --- */}
+                                {isLatestRoundBettable || isLatestRoundStakeable ? (
+                                    <p className="text-sm mb-1"><strong>Current Round End Time:</strong> <span className="font-semibold">{activeRoundEndTimeDisplay}</span></p>
+                                ) : null}
                                 <p className="text-sm mb-1">
                                     <strong>Entry Fee:</strong> <span className="font-semibold">{entryFeeDisplay} ETH</span> 
                                     {entryFeeInWei && currentEthPrice ? 
@@ -522,13 +528,16 @@ function App() {
                                                 readOnly 
                                             />
                                             <Input 
-                                                label="Your BTC Price Prediction (e.g., 65000.1234):" 
+                                                label="Your BTC Price in $ Prediction (e.g., 100000.1234):" 
                                                 id="prediction" 
                                                 name="prediction" 
                                                 type="number" 
                                                 step="0.0001" 
                                                 required 
                                             />
+                                            <p className="text-xs text-gray-500 mt-1 mb-3">
+                                                Predict the price of BTC in USD at the exact "Round End Time" of the active round.
+                                            </p>
                                             <Button 
                                                 type="submit" 
                                                 className="w-full" 
@@ -547,10 +556,30 @@ function App() {
                                         </form>
                                         <hr className="my-4"/>
                                         <form onSubmit={handleRaiseStakeSubmit}>
-                                            <h3 className="text-lg font-semibold mb-3 text-gray-700">Raise Stake for Round</h3>
-                                            <Input label="Round ID to Add Stake To:" id="raiseStakeRoundId" name="raiseStakeRoundId" type="number" required />
-                                            <Input label="Amount (USD) to Add:" id="raiseStakeAmountUsd" name="raiseStakeAmountUsd" type="number" step="any" placeholder="e.g., 10.00" required />
-                                            <Button type="submit" variant="secondary" className="w-full" disabled={!isConnected || isWritePending || !currentEthPrice}>
+                                            <h3 className="text-lg font-semibold mb-3 text-gray-700">Raise Stake for Current Round</h3>
+                                            <Input 
+                                                label="Current Round ID to Add Stake To:" 
+                                                id="raiseStakeRoundIdDisplay" 
+                                                name="raiseStakeRoundIdDisplay" 
+                                                type="text" 
+                                                value={isLatestRoundStakeable && latestCreatedRoundId !== '0' && latestCreatedRoundId !== 'N/A' ? latestCreatedRoundId : "No round available for staking"} 
+                                                readOnly 
+                                            />
+                                            <Input 
+                                                label="Amount (USD) to Add:" 
+                                                id="raiseStakeAmountUsd" 
+                                                name="raiseStakeAmountUsd" 
+                                                type="number" 
+                                                step="any" 
+                                                placeholder="e.g., 10.00" 
+                                                required 
+                                            />
+                                            <Button 
+                                                type="submit" 
+                                                variant="secondary" 
+                                                className="w-full" 
+                                                disabled={!isConnected || !isLatestRoundStakeable || isWritePending || !currentEthPrice}
+                                            >
                                                 {isWritePending ? "Processing..." : "Raise Stake (USD)"}
                                             </Button>
                                         </form>
