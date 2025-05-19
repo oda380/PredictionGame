@@ -107,7 +107,6 @@ function App() {
     const [queriedRoundInfo, setQueriedRoundInfo] = useState(null);
     const [currentParticipantsCount, setCurrentParticipantsCount] = useState('N/A');
     const [activeRoundMessage, setActiveRoundMessage] = useState("Checking for active round...");
-    // --- NEW STATE: Tracks if the latest round is open for betting ---
     const [isLatestRoundBettable, setIsLatestRoundBettable] = useState(false);
 
 
@@ -115,7 +114,7 @@ function App() {
     const { data: writeContractResult, writeContractAsync, isPending: isWritePending } = useWriteContract();
 
     // --- Effects ---
-    useEffect(() => { // Update displayed balance
+    useEffect(() => { 
         if (balanceData && currentEthPrice) { 
             const balanceEth = parseFloat(balanceData.formatted).toFixed(5); 
             setUserBalanceDisplay(balanceEth);
@@ -129,7 +128,7 @@ function App() {
         }
     }, [balanceData, currentEthPrice]); 
 
-    useEffect(() => { // Set admin status
+    useEffect(() => { 
         if (userAddress && contractOwner) {
             setIsAdmin(contractOwner.toLowerCase() === userAddress.toLowerCase());
         } else {
@@ -139,7 +138,7 @@ function App() {
 
     useEffect(() => {
         if (isConnected && chain?.id === TARGET_CHAIN_ID && publicClient) {
-            // Hooks manage their own initial fetching based on enabled flags and staleTime
+            // Hooks manage their own initial fetching
         }
     }, [isConnected, chain, publicClient]);
     
@@ -150,10 +149,9 @@ function App() {
     }, [isConnected, userAddress, currentEthPrice, chain, publicClient, fetchBetHistory]);
 
 
-    // Determine Active Round Status and if it's bettable
     useEffect(() => {
         const checkActiveRound = async () => {
-            setIsLatestRoundBettable(false); // Default to not bettable
+            setIsLatestRoundBettable(false); 
 
             if (!publicClient || latestCreatedRoundId === 'N/A' || isGamePaused === null) {
                 setActiveRoundMessage("Loading round status...");
@@ -176,15 +174,15 @@ function App() {
                     args: [BigInt(latestCreatedRoundId)] 
                 });
 
-                if (roundDataArr && !roundDataArr[2]) { // Not resolved
+                if (roundDataArr && !roundDataArr[2]) { 
                     const deadlineTimestamp = Number(roundDataArr[1]); 
                     if (deadlineTimestamp * 1000 > Date.now()) { 
                         setActiveRoundMessage(`Round ${latestCreatedRoundId} is ACTIVE for betting until ${formatTimestamp(deadlineTimestamp)}.`);
-                        setIsLatestRoundBettable(true); // <<<< SET BETTABLE STATE
+                        setIsLatestRoundBettable(true); 
                     } else {
                         setActiveRoundMessage(`Round ${latestCreatedRoundId} betting closed. Awaiting resolution.`);
                     }
-                } else if (roundDataArr && roundDataArr[2]) { // Resolved
+                } else if (roundDataArr && roundDataArr[2]) { 
                     setActiveRoundMessage(`Round ${latestCreatedRoundId} is resolved. No active round for betting.`);
                 } else {
                      setActiveRoundMessage("Could not determine status for the latest round.");
@@ -211,7 +209,6 @@ function App() {
     };
 
     const handleFetchRoundDetails = async () => {
-        // ... (no changes to this function)
         if (!publicClient || !queryRoundId) { showNotif("Please enter a Round ID to fetch details.", "error"); return; }
         try {
             const roundIdBigInt = BigInt(queryRoundId);
@@ -245,14 +242,13 @@ function App() {
             setCurrentParticipantsCount(bettors.length.toString());
             showNotif(`Details for round ${queryRoundId} loaded successfully.`, "success");
         } catch (e) { 
-            showNotif(`Workspace Round Details Error: ${e.message}`, "error"); 
+            showNotif(`Fetch Round Details Error: ${e.message}`, "error"); 
             console.error("Error in handleFetchRoundDetails:", e); 
             setQueriedRoundInfo(null); setCurrentParticipantsCount('N/A');
         }
     };
     
     const handleDirectClaimPrize = async (roundIdToClaim) => { 
-        // ... (no changes to this function)
         if (!roundIdToClaim) { showNotif("Round ID for claiming is missing.", "error"); return; }
         try {
             showNotif(`Attempting to claim prize for round ${roundIdToClaim}...`, "info");
@@ -260,15 +256,13 @@ function App() {
         } catch (e) { showNotif(`Claim Prize Error: ${e.shortMessage || e.message}`, "error"); console.error("Claim Prize Error:", e); }
     };
     
-    // --- MODIFIED handlePlaceBetSubmit ---
     const handlePlaceBetSubmit = async (event) => {
         event.preventDefault();
         if (!publicClient || !userAddress) { 
             showNotif("Wallet not connected or client not ready.", "error"); return;
         }
-        // Use the latestCreatedRoundId directly, as it's now displayed as read-only
         const betRoundId = latestCreatedRoundId; 
-        const predictionStr = event.target.prediction.value; // Still get prediction from form
+        const predictionStr = event.target.prediction.value; 
 
         if (!isLatestRoundBettable || !betRoundId || betRoundId === '0' || betRoundId === 'N/A') {
              showNotif("No active round available for betting or round ID is invalid.", "error"); 
@@ -276,31 +270,22 @@ function App() {
         }
         if (!predictionStr) { showNotif("Please enter your BTC price prediction.", "error"); return; }
 
-        console.log(`Attempting to place bet for active round ${betRoundId} by user ${userAddress}`);
         try {
-            console.log("Checking if bet already placed by reading 'bets' mapping...");
             const userBetDetailsArr = await publicClient.readContract({
                 ...baseWriteConfig, functionName: 'bets', args: [BigInt(betRoundId), userAddress]
             });
-            
-            console.log("User bet details from contract ('bets' mapping):", userBetDetailsArr);
             if (userBetDetailsArr && userBetDetailsArr[3] === true) { 
-                console.log("Bet already placed condition met. UserBetDetailsArr[3] (placed flag):", userBetDetailsArr[3]);
-                showNotif("You have already placed a bet for this round.", "error"); 
+                showNotif("You have already placed a bet for this round. Only one bet per round is allowed.", "error"); 
                 return;
             }
-            console.log("Bet not yet placed or 'placed' flag is false. UserBetDetailsArr[3]:", userBetDetailsArr ? userBetDetailsArr[3] : "'userBetDetailsArr' is undefined/null");
-
             const predictionValue = parseFloat(predictionStr);
             if (isNaN(predictionValue)) {
                 showNotif("Invalid prediction value. Please enter a number.", "error"); return;
             }
             const rawPrediction = BigInt(Math.round(predictionValue * (10**4))); 
-            
             if (entryFeeInWei === undefined || entryFeeInWei === null) { 
                 showNotif("Entry fee not loaded. Please refresh the page or game status.", "error"); return; 
             }
-            
             showNotif("Submitting your bet transaction...", "info"); 
             await writeContractAsync({ ...baseWriteConfig, functionName: 'placeBet', args: [rawPrediction, BigInt(betRoundId)], value: entryFeeInWei });
         } catch (e) { 
@@ -314,7 +299,6 @@ function App() {
     };
     
     const handleClaimPrizeSubmit = async (event) => { 
-        // ... (no changes to this function)
         event.preventDefault(); 
         const claimRoundId = event.target.claimRoundId.value;
         if (!claimRoundId) { showNotif("Please enter a Round ID to claim from.", "error"); return; }
@@ -322,7 +306,6 @@ function App() {
     };
 
     const handleRaiseStakeSubmit = async (event) => {
-        // ... (no changes to this function)
         event.preventDefault();
         const roundId = event.target.raiseStakeRoundId.value;
         const amountUsdStr = event.target.raiseStakeAmountUsd.value; 
@@ -349,9 +332,55 @@ function App() {
         }
     };
 
-    // Admin Handlers (simplified for brevity, actual logic remains)
+    // Admin Handlers
     const adminActionWrapper = async (functionName, args = [], successMsgPrefix = "Processing", value) => { try { showNotif(`${successMsgPrefix}...`, "info"); await writeContractAsync({ ...baseWriteConfig, functionName, args, value }); } catch (e) { showNotif(`Admin Action (${functionName}) Error: ${e.shortMessage || e.message}`, "error"); console.error(e);}};
-    const handleCreateRound = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const end = BigInt(Math.floor(new Date(fd.get('roundEndTimeAdmin')).getTime()/1000)); const dead = BigInt(Math.floor(new Date(fd.get('predictionDeadlineAdmin')).getTime()/1000)); if (isNaN(end) || isNaN(dead) || end <= dead || end <= Math.floor(Date.now()/1000)) { showNotif("Invalid dates.", "error"); return; } adminActionWrapper('createRound', [end, dead], "Creating round");};
+    
+    // --- MODIFIED handleCreateRound ---
+    const handleCreateRound = async (e) => { 
+        e.preventDefault(); 
+        const formData = new FormData(e.target); 
+        const endTimeStr = formData.get('roundEndTimeAdmin'); 
+        const deadlineStr = formData.get('predictionDeadlineAdmin'); 
+        
+        if(!endTimeStr || !deadlineStr){ 
+            showNotif("End time and deadline are required.", "error"); 
+            return; 
+        } 
+        
+        const endTimestampDate = new Date(endTimeStr);
+        const deadlineTimestampDate = new Date(deadlineStr);
+
+        // Check if dates are valid
+        if (isNaN(endTimestampDate.getTime()) || isNaN(deadlineTimestampDate.getTime())) {
+            showNotif("Invalid date format provided for end time or deadline.", "error");
+            return;
+        }
+
+        const endTimestampMs = endTimestampDate.getTime();
+        const deadlineTimestampMs = deadlineTimestampDate.getTime();
+        
+        const end = BigInt(Math.floor(endTimestampMs / 1000)); 
+        const dead = BigInt(Math.floor(deadlineTimestampMs / 1000)); 
+        const nowInSeconds = BigInt(Math.floor(Date.now() / 1000)); // Convert current time to BigInt for comparison
+
+        // Validate timestamps
+        if (end <= dead) {
+            showNotif("End time must be after the prediction deadline.", "error"); 
+            return;
+        }
+        if (end <= nowInSeconds) {
+            showNotif("Round end time must be in the future.", "error");
+            return;
+        }
+        if (dead <= nowInSeconds) {
+            showNotif("Prediction deadline must be in the future.", "error");
+            return;
+        }
+        
+        adminActionWrapper('createRound', [end, dead], "Creating new round");
+    };
+    // --- END MODIFIED handleCreateRound ---
+
     const handleResolveRound = async (e) => { e.preventDefault(); const id = new FormData(e.target).get('resolveRoundIdAdmin'); if(!id || isNaN(id) || BigInt(id) <= 0) {showNotif("Invalid ID.", "error"); return;} adminActionWrapper('resolveRound', [BigInt(id)], `Resolving ${id}`); };
     const handleSetGatingToken = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const addr = fd.get('gatingTokenAddress') || ZERO_ADDRESS; const bal = fd.get('minGatingTokenBalance') ? BigInt(fd.get('minGatingTokenBalance')) : 0n; if (addr !== ZERO_ADDRESS && !/^0x[a-fA-F0-9]{40}$/.test(addr)) { showNotif("Invalid token address.", "error"); return; } adminActionWrapper('setGatingToken', [addr, bal], "Setting gating token"); };
     const handleToggleGating = async () => { if(isTokenGatingEnabled === null) {showNotif("Gating status not loaded.", "error"); return;} adminActionWrapper('toggleTokenGating', [!isTokenGatingEnabled], `Toggling gating`); }; 
@@ -408,7 +437,6 @@ function App() {
                     <>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                             <Card title="Game Status" className="md:col-span-1">
-                                {/* ... (Game Status content remains the same) ... */}
                                 <p className="text-sm mb-1"><strong>Contract:</strong> 
                                     <a href={`${BLOCK_EXPLORER_URL}/address/${VITE_GAME_CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-1 break-all">
                                         {VITE_GAME_CONTRACT_ADDRESS ? VITE_GAME_CONTRACT_ADDRESS.substring(0,10) + "..." : "N/A"}
@@ -463,7 +491,6 @@ function App() {
                             <Card title="Round Information & Actions" className="md:col-span-2">
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                     <div>
-                                        {/* ... (Query Round Details content remains the same) ... */}
                                         <h3 className="text-gray-700 text-lg font-semibold mb-2">Query Round Details</h3>
                                         <div className="mb-3 flex items-end gap-2">
                                             <div className="flex-grow">
@@ -484,16 +511,15 @@ function App() {
                                         )}
                                     </div>
                                     <div>
-                                        {/* --- MODIFIED "Place Your Bet" Form --- */}
                                         <form onSubmit={handlePlaceBetSubmit} className="mb-6">
                                             <h3 className="text-lg font-semibold mb-3 text-gray-700">Place Your Bet on Current Active Round</h3>
                                             <Input 
                                                 label="Current Active Round ID:" 
-                                                id="betRoundIdDisplay" // Changed ID as it's not directly used for submission value
+                                                id="betRoundIdDisplay" 
                                                 name="betRoundIdDisplay" 
-                                                type="text" // Changed to text as it's read-only display
+                                                type="text" 
                                                 value={isLatestRoundBettable && latestCreatedRoundId !== '0' && latestCreatedRoundId !== 'N/A' ? latestCreatedRoundId : "No active round for betting"} 
-                                                readOnly // Make the field uneditable
+                                                readOnly 
                                             />
                                             <Input 
                                                 label="Your BTC Price Prediction (e.g., 65000.1234):" 
@@ -511,7 +537,6 @@ function App() {
                                                 {isWritePending ? "Placing Bet..." : "Place Bet"}
                                             </Button>
                                         </form>
-                                        {/* --- END MODIFIED "Place Your Bet" Form --- */}
                                         <hr className="my-4"/>
                                         <form onSubmit={handleClaimPrizeSubmit}> 
                                              <h3 className="text-lg font-semibold mb-3 text-gray-700">Claim Prize</h3>
@@ -535,7 +560,6 @@ function App() {
                         </div>
 
                         <Card title="My Bet History" titleColor="text-indigo-600">
-                            {/* ... (Bet History content remains the same) ... */}
                             {isLoadingHistory && <p className="text-sm text-gray-500">Loading history...</p>}
                             {!isLoadingHistory && betHistory.length === 0 && <p className="text-sm text-gray-500">No bets found in the checked block range.</p>}
                             {!isLoadingHistory && betHistory.length > 0 && (
@@ -578,7 +602,6 @@ function App() {
 
                         {isAdmin && ( 
                             <Card title="Admin Panel" titleColor="text-amber-500" className="border-l-4 border-amber-400 mt-8">
-                                {/* ... (Admin Panel content remains the same) ... */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     <Card title="Create Round" titleColor="text-gray-700" className="bg-gray-50 !mb-0">
                                         <form onSubmit={handleCreateRound}>
