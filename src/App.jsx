@@ -64,7 +64,7 @@ function App() {
 
     // --- Custom Hooks for Data ---
     const {
-        nextRoundId,
+        nextRoundId, // <<< We will use this
         latestCreatedRoundId,
         entryFeeInWei, 
         entryFeeDisplay,
@@ -109,7 +109,6 @@ function App() {
     const [activeRoundMessage, setActiveRoundMessage] = useState("Checking for active round...");
     const [isLatestRoundBettable, setIsLatestRoundBettable] = useState(false);
     const [isLatestRoundStakeable, setIsLatestRoundStakeable] = useState(false);
-    // --- NEW STATE: Store the active round's end time for display ---
     const [activeRoundEndTimeDisplay, setActiveRoundEndTimeDisplay] = useState("N/A");
 
 
@@ -157,14 +156,14 @@ function App() {
         const checkActiveRound = async () => {
             setIsLatestRoundBettable(false); 
             setIsLatestRoundStakeable(false); 
-            setActiveRoundEndTimeDisplay("N/A"); // Reset on each check
+            setActiveRoundEndTimeDisplay("N/A"); 
 
-            if (!publicClient || latestCreatedRoundId === 'N/A' || isGamePaused === null) {
+            if (!publicClient || latestCreatedRoundId === 'N/A' || isGamePaused === null || nextRoundId === 'N/A') {
                 setActiveRoundMessage("Loading round status...");
                 return;
             }
-            if (latestCreatedRoundId === '0') {
-                setActiveRoundMessage("No active rounds available. Admin can create the first round.");
+            if (latestCreatedRoundId === '0') { // No rounds created yet
+                setActiveRoundMessage(`No rounds created yet. Waiting for admin to create Round ${nextRoundId}.`);
                 return;
             }
             if (isGamePaused) {
@@ -173,6 +172,7 @@ function App() {
             }
             
             try {
+                // Fetch details for the latestCreatedRoundId to check its 'resolved' status
                 const roundDataArr = await publicClient.readContract({ 
                     abi: GAME_CONTRACT_ABI, 
                     address: VITE_GAME_CONTRACT_ADDRESS, 
@@ -180,11 +180,13 @@ function App() {
                     args: [BigInt(latestCreatedRoundId)] 
                 });
 
-                if (roundDataArr && roundDataArr[0].toString() !== "0") { // Check if roundEndTime is initialized
+                if (roundDataArr && roundDataArr[0].toString() !== "0") { // Check if roundEndTime is initialized for latestCreatedRoundId
                     const roundEndTime = Number(roundDataArr[0]);
-                    setActiveRoundEndTimeDisplay(formatTimestamp(roundEndTime)); // Set display end time
+                    const isLatestResolved = roundDataArr[2]; // index 2 is 'resolved'
+                    
+                    setActiveRoundEndTimeDisplay(formatTimestamp(roundEndTime));
 
-                    if (!roundDataArr[2]) { // Not resolved (index 2 is 'resolved')
+                    if (!isLatestResolved) { // If latestCreatedRoundId is NOT resolved
                         const deadlineTimestamp = Number(roundDataArr[1]); // index 1 is 'predictionDeadline'
                         setIsLatestRoundStakeable(true); 
 
@@ -193,12 +195,17 @@ function App() {
                             setIsLatestRoundBettable(true); 
                         } else {
                             setActiveRoundMessage(`Round ${latestCreatedRoundId} betting closed. Awaiting resolution.`);
+                            // isLatestRoundBettable remains false, but isLatestRoundStakeable is true
                         }
-                    } else { // Resolved
-                        setActiveRoundMessage(`Round ${latestCreatedRoundId} is resolved. No active round for betting or staking.`);
+                    } else { // If latestCreatedRoundId IS resolved
+                        setActiveRoundMessage(`Round ${latestCreatedRoundId} is resolved. Waiting for admin to create Round ${nextRoundId}.`);
+                        // isLatestRoundBettable and isLatestRoundStakeable remain false as the latest *created* is resolved.
+                        // A new round (nextRoundId) needs to be created to become active.
+                        setActiveRoundEndTimeDisplay("N/A"); // No specific end time for a "waiting for next" state
                     }
                 } else {
-                     setActiveRoundMessage("Could not determine status for the latest round (may not be initialized).");
+                     // This implies latestCreatedRoundId is a number > 0 but its data is not found/initialized in the 'rounds' mapping
+                     setActiveRoundMessage(`Data for Round ${latestCreatedRoundId} not found. Waiting for admin to create Round ${nextRoundId}.`);
                      setActiveRoundEndTimeDisplay("N/A");
                 }
             } catch (error) {
@@ -216,7 +223,8 @@ function App() {
             setIsLatestRoundStakeable(false);
             setActiveRoundEndTimeDisplay("N/A");
         }
-    }, [isConnected, chain, publicClient, latestCreatedRoundId, isGamePaused, formatTimestamp]);
+    // Added nextRoundId to dependency array
+    }, [isConnected, chain, publicClient, latestCreatedRoundId, isGamePaused, nextRoundId, formatTimestamp]);
 
 
     // --- Event Handlers ---
@@ -447,8 +455,8 @@ function App() {
                                 <p className="text-sm mb-1"><strong>Next Round ID:</strong> <span className="font-semibold">{nextRoundId}</span></p>
                                 <p className="text-sm mb-1"><strong>Latest Created Round:</strong> <span className="font-semibold">{latestCreatedRoundId}</span></p>
                                 <p className="text-sm mb-1"><strong>Active Round Status:</strong> <span className="font-semibold">{activeRoundMessage}</span></p> 
-                                {/* --- ADDED ACTIVE ROUND END TIME DISPLAY --- */}
-                                {isLatestRoundBettable || isLatestRoundStakeable ? (
+                                {/* --- MODIFIED: Display Active Round End Time --- */}
+                                {(isLatestRoundBettable || isLatestRoundStakeable) && activeRoundEndTimeDisplay !== "N/A" && activeRoundEndTimeDisplay !== "Error" && latestCreatedRoundId !== '0' ? (
                                     <p className="text-sm mb-1"><strong>Current Round End Time:</strong> <span className="font-semibold">{activeRoundEndTimeDisplay}</span></p>
                                 ) : null}
                                 <p className="text-sm mb-1">
@@ -462,11 +470,13 @@ function App() {
                                 <Button 
                                     onClick={async () => { 
                                         setIsGameStatusRefreshing(true);
+                                        showNotif("Refreshing all game data...", "info");
                                         await Promise.all([ 
-                                            refetchAllGameData(),
+                                            refetchAllGameData(), // This will trigger the useEffect for checkActiveRound
                                             fetchCurrentEthPrice(),
                                             fetchCurrentBtcPrice() 
                                         ]);
+                                        // The checkActiveRound useEffect will run due to refetchAllGameData updating its dependencies
                                         setIsGameStatusRefreshing(false);
                                         showNotif("Game status and prices refreshed.", "success");
                                     }} 
@@ -528,7 +538,7 @@ function App() {
                                                 readOnly 
                                             />
                                             <Input 
-                                                label="Your BTC Price in $ Prediction (e.g., 100000.1234):" 
+                                                label="Your BTC Price Prediction (e.g., 65000.1234):" 
                                                 id="prediction" 
                                                 name="prediction" 
                                                 type="number" 
