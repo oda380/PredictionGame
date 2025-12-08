@@ -6,6 +6,32 @@ const limiter = rateLimit({
     uniqueTokenPerInterval: 500,
 });
 
+// Simple in-memory cache for responses
+const cache = new Map<string, { data: unknown; expires: number }>();
+const CACHE_TTL = 15000; // 15 seconds for success
+const ERROR_CACHE_TTL = 60000; // 60 seconds for errors (prevents abuse)
+
+function getCached(key: string) {
+    const entry = cache.get(key);
+    if (entry && entry.expires > Date.now()) {
+        return entry.data;
+    }
+    cache.delete(key);
+    return null;
+}
+
+function setCache(key: string, data: unknown, ttl: number = CACHE_TTL) {
+    cache.set(key, { data, expires: Date.now() + ttl });
+}
+
+function isErrorCached(key: string): boolean {
+    return getCached(key + ':error') === true;
+}
+
+function setErrorCache(key: string) {
+    setCache(key + ':error', true, ERROR_CACHE_TTL);
+}
+
 export async function GET(
     request: NextRequest,
     { params }: { params: Promise<{ address: string }> }
@@ -17,6 +43,21 @@ export async function GET(
         return NextResponse.json(
             { error: 'Invalid Ethereum address' },
             { status: 400 }
+        );
+    }
+
+    // Check cache first (only successful responses are cached)
+    const cacheKey = `bet-history:${address.toLowerCase()}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+        return NextResponse.json(cached);
+    }
+
+    // Check if this address recently caused an error (prevents abuse)
+    if (isErrorCached(cacheKey)) {
+        return NextResponse.json(
+            { error: 'Request temporarily blocked due to previous error. Try again in 60 seconds.', transactions: [] },
+            { status: 429 }
         );
     }
 
@@ -66,15 +107,15 @@ export async function GET(
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(requestBody),
-            // Changed from 'no-store' to 'force-cache' with next.revalidate to caching results for 15 seconds.
-            // This prevents spamming Alchemy if the user refreshes rapidly.
-            cache: 'force-cache',
-            next: { revalidate: 15 }
+            // Don't cache to prevent stale 403 errors
+            cache: 'no-store',
         });
 
         if (!response.ok) {
-            console.error('Alchemy HTTP error:', response.status, response.statusText);
-            throw new Error(`Alchemy returned ${response.status}`);
+            // Log the full error response for debugging
+            const errorBody = await response.text();
+            console.error('Alchemy HTTP error:', response.status, response.statusText, errorBody);
+            throw new Error(`Alchemy returned ${response.status}: ${errorBody.slice(0, 200)}`);
         }
 
         const data = await response.json();
@@ -101,12 +142,19 @@ export async function GET(
 
         console.log(`Found ${transactions.length} transactions to contract from ${address}`);
 
-        return NextResponse.json({
-            transactions: transactions
-        });
+        const responseData = { transactions: transactions };
+
+        // Cache successful response only
+        setCache(cacheKey, responseData);
+
+        return NextResponse.json(responseData);
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         console.error('Alchemy API fetch error:', errorMessage);
+
+        // Cache the error to prevent repeated failed requests
+        setErrorCache(cacheKey);
+
         return NextResponse.json(
             { error: `Failed to fetch transactions: ${errorMessage}`, transactions: [] },
             { status: 500 }
