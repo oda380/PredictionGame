@@ -1,0 +1,272 @@
+@import "tailwindcss";
+
+/* Enable class-based dark mode for next-themes compatibility */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    /* Fonts */
+    --font-sans: var(--font-inter), sans-serif;
+    --font-heading: var(--font-rajdhani), sans-serif;
+
+    /* Colors - Deep Space Background (Dark) */
+    --color-space-950: #030712;
+    --color-space-900: #0a0f1f;
+    --color-space-800: #111827;
+    --color-space-700: #1f2937;
+
+    /* Colors - Light Mode Equivalents */
+    --color-light-50: #f8fafc;
+    --color-light-100: #f1f5f9;
+    --color-light-200: #e2e8f0;
+    --color-light-300: #cbd5e1;
+
+    /* Colors - Vibrant Gaming Palette */
+    --color-primary-cyan: #22d3ee;
+    --color-primary-purple: #a855f7;
+    --color-primary-amber: #fbbf24;
+
+    /* Colors - Brand Gradients */
+    --color-brand-indigo: #6366f1;
+    --color-brand-purple: #8b5cf6;
+    --color-brand-cyan: #06b6d4;
+
+    /* Colors - Semantic */
+    --color-accent-gold: #f59e0b;
+    --color-accent-emerald: #10b981;
+    --color-accent-rose: #f43f5e;
+
+    /* Animations */
+    --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    --animate-float: float 6s ease-in-out infinite;
+    --animate-glow: glow 2s ease-in-out infinite alternate;
+
+    @keyframes float {
+
+        0%,
+        100% {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-10px);
+        }
+    }
+
+    @keyframes glow {
+        from {
+            box-shadow: 0 0 20px rgba(34, 211, 238, 0.2);
+        }
+
+        to {
+            box-shadow: 0 0 30px rgba(34, 211, 238, 0.4);
+        }
+    }
+}
+
+/* Base Variables - Light Mode (Orbital Daylight) */
+:root {
+    /* Backgrounds */
+    --bg-page: #F8FAFC;
+    /* Slate 50 - Space White */
+    --bg-panel: rgba(255, 255, 255, 0.88);
+    /* High Opacity Module */
+    --bg-input: #FFFFFF;
+    /* Pure White */
+
+    /* Text */
+    --text-primary: #0F172A;
+    /* Slate 900 */
+    --text-secondary: #475569;
+    /* Slate 600 */
+    --text-muted: #64748B;
+    /* Slate 500 */
+
+    /* Border */
+    --border-panel: #E2E8F0;
+    /* Slate 200 */
+
+    /* Effects */
+    --shadow-panel: 0 10px 30px rgba(15, 23, 42, 0.08);
+
+    /* Gradient Overlays (Orbital Daylight) */
+    --grad-overlay-1: radial-gradient(circle at 10% 0%, rgba(8, 145, 178, 0.05) 0%, transparent 40%);
+    --grad-overlay-2: radial-gradient(circle at 90% 100%, rgba(124, 58, 237, 0.05) 0%, transparent 40%);
+
+    /* Semantic Gradients */
+    --grad-btn-primary: linear-gradient(90deg, #0891B2, #7C3AED);
+    /* Cyan 600 -> Violet 600 */
+    --grad-btn-btc: linear-gradient(90deg, #D97706, #0891B2);
+    /* Amber 600 -> Cyan 600 */
+    --grad-btn-success: linear-gradient(90deg, #16A34A, #0D9488);
+    /* Green 600 -> Teal 600 */
+    --grad-btn-danger: linear-gradient(90deg, #DC2626, #E11D48);
+    /* Red 600 -> Rose 600 */
+    --grad-btn-warning: linear-gradient(90deg, #D97706, #EA580C);
+    /* Amber 600 -> Orange 600 */
+
+    /* Semantic Glow Shadows (Tinted Light Mode Rings) */
+    --shadow-glow-cyan: 0 8px 30px rgba(8, 145, 178, 0.18);
+    --shadow-glow-emerald: 0 8px 30px rgba(22, 163, 74, 0.18);
+    --shadow-glow-rose: 0 8px 30px rgba(220, 38, 38, 0.18);
+    --shadow-glow-amber: 0 8px 30px rgba(217, 119, 6, 0.14);
+}
+
+/* Dark Mode Overrides - Deep Cyberpunk */
+.dark {
+    /* Backgrounds - Deep Space */
+    --bg-page: #020617;
+    /* Slate 950 */
+    --bg-panel: rgba(15, 23, 42, 0.90);
+    /* Slate 900 @ 90% */
+    --bg-input: rgba(2, 6, 23, 0.8);
+
+    /* Text */
+    --text-primary: #ffffff;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+
+    /* Border */
+    --border-panel: rgba(30, 41, 59, 1);
+
+    /* Effects - Neon Glow */
+    --shadow-panel:
+        0 0 0 1px rgba(34, 211, 238, 0.1),
+        0 4px 6px -1px rgba(0, 0, 0, 0.5),
+        0 0 15px rgba(34, 211, 238, 0.05);
+
+    /* Gradient Overlays (Subtle Aurora) */
+    --grad-overlay-1: radial-gradient(circle at 15% 15%, rgba(34, 211, 238, 0.08) 0%, transparent 40%);
+    --grad-overlay-2: radial-gradient(circle at 85% 85%, rgba(168, 85, 247, 0.08) 0%, transparent 40%);
+
+    /* Semantic Gradients (Dark Mode - Neon) */
+    --grad-btn-primary: linear-gradient(90deg, #06b6d4, #9333ea);
+    /* Cyan 500 -> Purple 600 */
+    --grad-btn-btc: linear-gradient(90deg, #f59e0b, #f97316);
+    /* Amber 500 -> Orange 500 */
+    --grad-btn-success: linear-gradient(90deg, #10b981, #0d9488);
+    /* Emerald 500 -> Teal 600 */
+    --grad-btn-danger: linear-gradient(90deg, #ef4444, #e11d48);
+    /* Red 500 -> Rose 600 */
+    --grad-btn-warning: linear-gradient(90deg, #f59e0b, #ea580c);
+    /* Amber 500 -> Orange 600 */
+
+    /* Semantic Glow Shadows (Neon Dark Mode) */
+    --shadow-glow-cyan: 0 0 30px rgba(34, 211, 238, 0.4);
+    --shadow-glow-emerald: 0 0 30px rgba(16, 185, 129, 0.4);
+    --shadow-glow-rose: 0 0 30px rgba(239, 68, 68, 0.4);
+    --shadow-glow-amber: 0 0 30px rgba(251, 191, 36, 0.4);
+}
+
+body {
+    color: var(--text-primary);
+    background-color: var(--bg-page);
+    background-image:
+        var(--grad-overlay-1),
+        var(--grad-overlay-2);
+    background-attachment: fixed;
+    min-height: 100vh;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(34, 211, 238, 0.4), rgba(168, 85, 247, 0.4));
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(34, 211, 238, 0.6), rgba(168, 85, 247, 0.6));
+}
+
+/* Glassmorphism Classes using CSS Variables */
+.glass-panel {
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-panel);
+    box-shadow: var(--shadow-panel);
+    transition: all 0.3s ease;
+}
+
+.glass-panel:hover {
+    border-color: rgba(8, 145, 178, 0.3);
+    /* Cyan 600 for light mode */
+    box-shadow: var(--shadow-panel), 0 4px 20px rgba(8, 145, 178, 0.08);
+}
+
+.dark .glass-panel:hover {
+    border-color: rgba(34, 211, 238, 0.4);
+    box-shadow: var(--shadow-panel), 0 0 20px rgba(34, 211, 238, 0.1);
+}
+
+/* Smooth Transitions */
+button,
+a,
+input,
+.interactive {
+    transition: all 0.2s ease;
+}
+
+/* Custom Animations */
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 20px rgba(34, 211, 238, 0.2);
+    }
+
+    50% {
+        box-shadow: 0 0 30px rgba(34, 211, 238, 0.4);
+    }
+}
+
+.animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+}
+
+.animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Utility Classes mapped to Variables */
+@utility text-heading-primary {
+    color: var(--text-primary);
+}
+
+@utility text-body-secondary {
+    color: var(--text-secondary);
+}
+
+@utility bg-card-panel {
+    background: var(--bg-panel);
+}
+
+/* Hide scrollbar */
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
