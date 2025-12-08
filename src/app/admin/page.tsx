@@ -35,7 +35,12 @@ export default function AdminPage() {
         prizePoolPercentage,
         latestCreatedRoundId,
         nextRoundId,
+        contractOwner,
     } = useGameContractReads();
+
+    // Check if connected user is the contract owner
+    const isOwner = userAddress && contractOwner &&
+        userAddress.toLowerCase() === contractOwner.toLowerCase();
 
     // Get active round status for raise stake feature
     const { isLatestRoundStakeable } = useActiveRound({
@@ -101,6 +106,7 @@ export default function AdminPage() {
         }
     }, [isConnected, chain, showNotif]);
 
+    // Not connected - show connect prompt
     if (!isConnected) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-space-950/50 backdrop-blur-sm">
@@ -108,6 +114,33 @@ export default function AdminPage() {
                     <h1 className="text-3xl font-heading font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-brand-indigo to-brand-purple">Admin Access</h1>
                     <p className="mb-6 text-slate-400 text-center">Connect your wallet to access the neural command terminal.</p>
                     <ConnectButton />
+                </div>
+            </div>
+        );
+    }
+
+    // Connected but not owner - show access denied
+    if (!isOwner) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-space-950/50 backdrop-blur-sm">
+                <div className="glass-panel rounded-2xl p-8 flex flex-col items-center max-w-md w-full border border-red-500/30">
+                    <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mb-4">
+                        <span className="text-3xl">🚫</span>
+                    </div>
+                    <h1 className="text-2xl font-heading font-bold mb-2 text-red-500">Access Denied</h1>
+                    <p className="mb-4 text-slate-400 text-center">You are not the contract owner.</p>
+                    <div className="text-xs text-slate-500 mb-4 text-center">
+                        <p>Connected: <span className="font-mono text-slate-400">{userAddress?.slice(0, 6)}...{userAddress?.slice(-4)}</span></p>
+                        {contractOwner && (
+                            <p>Owner: <span className="font-mono text-slate-400">{contractOwner.slice(0, 6)}...{contractOwner.slice(-4)}</span></p>
+                        )}
+                    </div>
+                    <button
+                        onClick={() => router.push('/')}
+                        className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white transition-colors"
+                    >
+                        ← Back to Home
+                    </button>
                 </div>
             </div>
         );
